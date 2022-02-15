@@ -103,23 +103,32 @@ end
 
 ##### DES Wrapper #####
 
-function DES(::Order1, ODE::Function, x0, params, tspan; alg=nothing, kwargs...)
-    # Solve the sensitivity problem.
-    problem = ODEForwardSensitivityProblem(ODE, x0, tspan, params)
-    t_end = floor(Int64, tspan[2])
-    if alg isa Nothing
-        sol = solve(problem; saveat=0:t_end, kwargs...)
-    else
-        sol = solve(problem, alg; saveat=0:t_end, kwargs...)
+function DES(::Order1, ODE::Function, x0, params, tspan; alg=nothing, stepsize=1.0, kwargs...)
+    problem = ODEProblem(ODE, x0, tspan, params)
+    sensealg = QuadratureAdjoint(autojacvec=EnzymeVJP())
+    tend = tspan[2]
+    
+    # this has extra arguments; dg is parameterized by xvar and s
+    function dg(out,u,p,t,i,xvar,s)
+      fill!(out, 0) # this assigns values to the existing object
+      if t == s
+        out[xvar] = -1
+      end
+      nothing
     end
-
-    # Save data in the same format as analytic_method.
     solution = Dict{Int, Matrix{Float64}}(
-        i => zeros(length(sol), 1+length(params)) for i in 1:length(x0))
-    u, du = extract_local_sensitivities(sol)
-    record_data!(solution, u, 1, eachindex(x0)) # solution
-    foreach(j -> record_data!(solution, du[j], 1+j, eachindex(x0)), eachindex(params)) # partials
+            i => zeros(Integer(tend+1), 1+length(params)) for i in 1:length(x0))
+    ts = 0:stepsize:tend
+    sol = solve(problem, alg; kwargs...) # the ts part is important here
 
+    for xvar in 1:length(x0)
+        solution[xvar][1,1] = sol(0.0)[xvar]
+        for s in 1:tend
+            du0, dp = adjoint_sensitivities(sol, alg, (out,u,p,tend,i) -> dg(out,u,p,tend,i,xvar,s), ts; sensealg=sensealg, kwargs...)
+            solution[xvar][Integer(s+1),1] = sol(s)[xvar]
+            solution[xvar][Integer(s+1),2:end] = dp
+        end
+    end
     return solution
 end
 
