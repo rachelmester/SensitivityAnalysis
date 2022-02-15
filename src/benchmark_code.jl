@@ -411,10 +411,10 @@ function euclidean_dist(x, y)
     return norm(z, 2)
 end
 
-function ODEAccuracy(ODE, x0, params, sensealg, epsilon1, epsilon2, time, excludeDES2=false, excludeDES2_nonadjoint=false; kwargs...)
+function ODEAccuracy(system, x0, params, sensealg, epsilon1, epsilon2, time, excludeDES2=false, excludeDES2_nonadjoint=false, exclude1chunkmulti=false; kwargs...)
     change = 0.1
     perturb = change * params
-    
+    ODE = DiffEqBase.ODEFunction(system)
     analytic2_accuracy = 0.0
     analytic2multi_accuracy = 0.0
     FD2multi_accuracy = 0.0
@@ -433,38 +433,41 @@ function ODEAccuracy(ODE, x0, params, sensealg, epsilon1, epsilon2, time, exclud
     FD2jac1chunk_accuracy = 0.0
     tspan = (0.0,time)
     
-    FD_first = FD(Order1(), ODE, x0, params, tspan)
-    FD1chunk = FD(Order1(), ODE, x0, params, tspan, chunksize = 1)
-    FD1chunk1multi = FD(Order1(), ODE, x0, params, tspan, chunksize = 1, multi = true)
-    FD1chunk1multi_prediction = predict(Order1(), FD1chunk1multi, perturb)
+    FD_first = FD(Order1(), ODE, x0, params, tspan; kwargs...)
     FD_first_prediction = predict(Order1(), FD_first, perturb)
+    FD1chunk = FD(Order1(), ODE, x0, params, tspan, chunksize = 1; kwargs...)
     FD1chunk_prediction = predict(Order1(), FD1chunk, perturb)
     analytic_first = analytic_method(Order1(), ODE, x0, params, tspan, epsilon1; kwargs...)
     analytic_first_prediction = predict(Order1(), analytic_first, perturb)
     analyticfirstmulti = analytic_method_multi(Order1(), ODE, x0, params, tspan, epsilon1; kwargs...)
     analyticfirstmulti_prediction = predict(Order1(), analyticfirstmulti, perturb)
-    FD1multi = FD(Order1(), ODE, x0, params, tspan, multi = true)
+    FD1multi = FD(Order1(), ODE, x0, params, tspan, multi = true; kwargs...)
     FD1multi_prediction = predict(Order1(), FD1multi, perturb)
     exact = predictExact(ODE, x0, params, tspan, perturb; kwargs...)
     julia_first = DES(Order1(), ODE, x0, params, tspan; kwargs...)
     julia_first_prediction = predict(Order1(), julia_first, perturb)
-
-    FDhes_second = FD(Order2(), ODE, x0, params, tspan)
+    
+    FDhes_second = FD(Order2(), ODE, x0, params, tspan; kwargs...)
     FDhes_second_prediction = predict(Order2(), FD_first, FDhes_second, perturb)
-    FDjac_second = FD2(Order2(), ODE, x0, params, tspan)
+    FDjac_second = FD2(Order2(), ODE, x0, params, tspan; kwargs...)
     FDjac_second_prediction = predict(Order2(), FD_first, FDjac_second, perturb)
-    FD2jac1chunk = FD2(Order2(), ODE, x0, params, tspan, chunksize = 1)
-    FD2jac1chunk_prediction = predict(Order2(), FD1chunk, FD2jac1chunk, perturb)
-    FD2multi = FD2(Order2(), ODE, x0, params, tspan, multi = true)
+    FD2multi = FD2(Order2(), ODE, x0, params, tspan, multi = true; kwargs...)
     FD2multi_prediction = predict(Order2(), FD1multi, FD2multi, perturb)
-    FD2chunk1multi = FD2(Order2(), ODE, x0, params, tspan, chunksize = 1, multi = true)
-    FD2chunk1multi_prediction = predict(Order2(), FD1chunk1multi, FD2chunk1multi, perturb)
+    
+    if !exclude1chunkmulti
+        FD1chunk1multi = FD(Order1(), ODE, x0, params, tspan, chunksize = 1, multi = true; kwargs...)
+        FD1chunk1multi_prediction = predict(Order1(), FD1chunk1multi, perturb)
+        FD2chunk1multi = FD2(Order2(), ODE, x0, params, tspan, chunksize = 1, multi = true; kwargs...)
+        FD2chunk1multi_prediction = predict(Order2(), FD1chunk1multi, FD2chunk1multi, perturb)
+        FD2jac1chunk = FD2(Order2(), ODE, x0, params, tspan, chunksize = 1; kwargs...)
+        FD2jac1chunk_prediction = predict(Order2(), FD1chunk, FD2jac1chunk, perturb)
+    end
     if !excludeDES2
         julia_second = DES(Order2(), ODE, x0, params, tspan, sensealg; kwargs...)
         julia_second_prediction = predict(Order2(), julia_first, julia_second, perturb)
     end
     if !excludeDES2_nonadjoint
-        nonadjoint_second = DES(Order2(), ODE, x0, params, tspan, ForwardDiffOverAdjoint(ForwardSensitivity(autodiff=false)))
+        nonadjoint_second = DES(Order2(), ODE, x0, params, tspan, ForwardDiffOverAdjoint(ForwardSensitivity(autodiff=false)); kwargs...)
         nonadjoint_second_prediction = predict(Order2(), julia_first, nonadjoint_second, perturb)
     end
     
@@ -477,19 +480,21 @@ function ODEAccuracy(ODE, x0, params, sensealg, epsilon1, epsilon2, time, exclud
             #compute distance between predicted and actual trajectories
             actual = exact[param][compartment]
             FD1_accuracy += euclidean_dist(actual, FD_first_prediction[compartment][:, 1+param])
-            FD1chunk_accuracy += euclidean_dist(actual, FD1chunk_prediction[compartment][:, 1+param])
             julia1_accuracy += euclidean_dist(actual, julia_first_prediction[compartment][:, 1+param])
             analytic1_accuracy += euclidean_dist(actual, analytic_first_prediction[compartment][:, 1+param])
             analytic1multi_accuracy += euclidean_dist(actual, analyticfirstmulti_prediction[compartment][:, 1+param])
             FD1multi_accuracy += euclidean_dist(actual, FD1multi_prediction[compartment][:, 1+param])
-            FD1chunk1multi_accuracy += euclidean_dist(actual, FD1chunk1multi_prediction[compartment][:, 1+param])
             analytic2_accuracy += euclidean_dist(actual, analytic_second_prediction[compartment][:, 1+param])
             analytic2multi_accuracy += euclidean_dist(actual, analyticsecondmulti_prediction[compartment][:, 1+param])
             FD2hes_accuracy += euclidean_dist(actual, FDhes_second_prediction[compartment][:, 1+param])
             FD2jac_accuracy += euclidean_dist(actual, FDjac_second_prediction[compartment][:, 1+param])
-            FD2jac1chunk_accuracy += euclidean_dist(actual, FD2jac1chunk_prediction[compartment][:, 1+param])
+            FD1chunk_accuracy += euclidean_dist(actual, FD1chunk_prediction[compartment][:, 1+param])
             FD2multi_accuracy += euclidean_dist(actual, FD2multi_prediction[compartment][:, 1+param])
-            FD2chunk1multi_accuracy += euclidean_dist(actual, FD2chunk1multi_prediction[compartment][:, 1+param])
+            if !exclude1chunkmulti
+                FD1chunk1multi_accuracy += euclidean_dist(actual, FD1chunk1multi_prediction[compartment][:, 1+param])
+                FD2chunk1multi_accuracy += euclidean_dist(actual, FD2chunk1multi_prediction[compartment][:, 1+param])
+                FD2jac1chunk_accuracy += euclidean_dist(actual, FD2jac1chunk_prediction[compartment][:, 1+param])
+            end
             if !excludeDES2
                 julia2_accuracy += euclidean_dist(actual, julia_second_prediction[compartment][:, 1+param])
             end
@@ -504,37 +509,43 @@ function ODEAccuracy(ODE, x0, params, sensealg, epsilon1, epsilon2, time, exclud
     return all_methods
 end
 
-function benchmarkSIR(t, N, n, change, sensealg, epsilon1, excludeDES2=false, excludeDES2_nonadjoint=false; kwargs...)
+function benchmarkSIR(t, N, n, change, sensealg, epsilon1, excludeDES2=false, excludeDES2_nonadjoint=false, exclude1chunk=false, exclude_analytic=false; kwargs...)
     x0 = [N - n, n, 0.0]
     params = [0.105, 0.12, N]
     tspan = (0.0,t)
     ODE = DiffEqBase.ODEFunction(SIR)
-    times = benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint; kwargs...)
+    times = benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint, exclude1chunk, exclude_analytic; kwargs...)
     return times
 end
 
-function benchmarkCARRGO(t, change, sensealg, epsilon1, excludeDES2=false, excludeDES2_nonadjoint=false; kwargs...)
+function benchmarkCARRGO(t, change, sensealg, epsilon1, excludeDES2=false, excludeDES2_nonadjoint=false, exclude1chunk=false, exclude_analytic=false; kwargs...)
     x0 = [1.25e4, 6.25e2] 
     params = [6.0e-9, 3.0e-11, 1.0e-6, 6.0e-2, 1.0e9]
     tspan = (0.0,t)
     ODE = DiffEqBase.ODEFunction(CARRGO)
-
-    times = benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint; kwargs...)
-
+    times = benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint, exclude1chunk, exclude_analytic; kwargs...)
     return times
 end
 
-function benchmarkMCC(t, change, sensealg, epsilon1, excludeDES2=false, excludeDES2_nonadjoint=false; kwargs...)
+function benchmarkROBER(t, change, sensealg, epsilon1, excludeDES2=false, excludeDES2_nonadjoint=false, exclude1chunk=false, exclude_analytic=false; kwargs...)
+    x0 = [1.0,0.0,0.0] 
+    params = [0.04,3e7,1e4]
+    tspan = (0.0,t)
+    ODE = DiffEqBase.ODEFunction(ROBER)
+    times = benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint, exclude1chunk, exclude_analytic; kwargs...)
+    return times
+end
+
+function benchmarkMCC(t, change, sensealg, epsilon1, excludeDES2=false, excludeDES2_nonadjoint=false, exclude1chunk=false, exclude_analytic=false; kwargs...)
     x0 = [0.1, 0.05, 0.01, 0.01, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
     params = [0.05, 0.025, 0.4, 0.1, 0.175, 1.5, 0.2, 0.1, 1.0, 0.1, 0.005, 0.1, 2.0, 0.4, 0.15]
     tspan = (0.0,t)
     ODE = DiffEqBase.ODEFunction(MCC)
 
-    times = benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint; kwargs...)
+    times = benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint, exclude1chunk, exclude_analytic; kwargs...)
 
     return times
 end
-
 
 function benchmarkSIRAccuracy(x0, params, tspan, epsilon1, epsilon2, ODE, del_param; kwargs...)
     accuracy = zeros(6)
@@ -569,30 +580,34 @@ function benchmarkSIRAccuracy(x0, params, tspan, epsilon1, epsilon2, ODE, del_pa
     return accuracy
 end
 
-function benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint; kwargs...)
+function benchmarkSIRTime(x0, params, tspan, epsilon1, ODE, sensealg, excludeDES2, excludeDES2_nonadjoint, exclude1chunk, exclude_analytic; kwargs...)
     times = zeros(16)
     epsilon2 = sqrt(epsilon1)
     sense = ForwardDiffOverAdjoint(ForwardSensitivity(autodiff=false))
-    times[1] = median(@benchmark FD(Order1(), $ODE, $x0, $params, $tspan; $kwargs)).time
-    times[2] = median(@benchmark FD(Order1(), $ODE, $x0, $params, $tspan; chunksize = 1, $kwargs)).time
-    times[3] = median(@benchmark DES(Order1(), $ODE, $x0, $params, $tspan; $kwargs)).time
-    times[4] = median(@benchmark analytic_method(Order1(), $ODE, $x0, $params, $tspan, $epsilon1; $kwargs)).time
-    times[5] = median(@benchmark analytic_method_multi(Order1(), $ODE, $x0, $params, $tspan, $epsilon1; $kwargs)).time
-    times[6] = median(@benchmark FD(Order1(), $ODE, $x0, $params, $tspan; multi = true, $kwargs)).time
-    times[7] = median(@benchmark FD(Order1(), $ODE, $x0, $params, $tspan; chunksize = 1, multi = true, $kwargs)).time
-    times[8] = median(@benchmark FD(Order2(), $ODE, $x0, $params, $tspan; $kwargs)).time
-    times[9] = median(@benchmark FD2(Order2(), $ODE, $x0, $params, $tspan; $kwargs)).time
-    times[10] = median(@benchmark FD2(Order2(), $ODE, $x0, $params, $tspan; chunksize = 1, $kwargs)).time
+    times[1] = median(@benchmark FD(Order1(), $ODE, $x0, $params, $tspan; $kwargs...)).time
+    times[2] = median(@benchmark FD(Order1(), $ODE, $x0, $params, $tspan; chunksize = 1, $kwargs...)).time
+    times[3] = median(@benchmark DES(Order1(), $ODE, $x0, $params, $tspan; $kwargs...)).time
+    times[6] = median(@benchmark FD(Order1(), $ODE, $x0, $params, $tspan; multi = true, $kwargs...)).time
+    times[8] = median(@benchmark FD(Order2(), $ODE, $x0, $params, $tspan; $kwargs...)).time
+    times[9] = median(@benchmark FD2(Order2(), $ODE, $x0, $params, $tspan; $kwargs...)).time
+    if !exclude1chunk
+        times[7] = median(@benchmark FD(Order1(), $ODE, $x0, $params, $tspan; chunksize = 1, multi = true, $kwargs...)).time
+        times[10] = median(@benchmark FD2(Order2(), $ODE, $x0, $params, $tspan; chunksize = 1, $kwargs...)).time
+        times[16] = median(@benchmark FD2(Order2(), $ODE, $x0, $params, $tspan; chunksize = 1, multi = true, $kwargs...)).time
+    end
     if !excludeDES2
-        times[11] = median(@benchmark DES(Order2(), $ODE, $x0, $params, $tspan, $sensealg; $kwargs)).time
+        times[11] = median(@benchmark DES(Order2(), $ODE, $x0, $params, $tspan, $sensealg; $kwargs...)).time
     end
     if !excludeDES2_nonadjoint
-        times[12] = median(@benchmark DES(Order2(), $ODE, $x0, $params, $tspan, $sense)).time
+        times[12] = median(@benchmark DES(Order2(), $ODE, $x0, $params, $tspan, $sense; $kwargs...)).time
     end
-    times[13] = median(@benchmark analytic_method(Order2(), $ODE, $x0, $params, $tspan, $epsilon2; $kwargs)).time
-    times[14] = median(@benchmark analytic_method_multi(Order2(), $ODE, $x0, $params, $tspan, $epsilon2; $kwargs)).time
-    times[15] = median(@benchmark FD2(Order2(), $ODE, $x0, $params, $tspan; multi = true, $kwargs)).time
-    times[16] = median(@benchmark FD2(Order2(), $ODE, $x0, $params, $tspan; chunksize = 1, multi = true, $kwargs)).time
+    if !exclude_analytic
+        times[4] = median(@benchmark analytic_method(Order1(), $ODE, $x0, $params, $tspan, $epsilon1; $kwargs...)).time
+        times[5] = median(@benchmark analytic_method_multi(Order1(), $ODE, $x0, $params, $tspan, $epsilon1; $kwargs...)).time
+        times[13] = median(@benchmark analytic_method(Order2(), $ODE, $x0, $params, $tspan, $epsilon2; $kwargs...)).time
+        times[14] = median(@benchmark analytic_method_multi(Order2(), $ODE, $x0, $params, $tspan, $epsilon2; $kwargs...)).time
+    end
+    times[15] = median(@benchmark FD2(Order2(), $ODE, $x0, $params, $tspan; multi = true, $kwargs...)).time
     # convert ns to μs
     
     times ./= 1e3

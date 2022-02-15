@@ -6,6 +6,16 @@ part of this code.
 =#
 
 """
+    ROBER(dx, x, p, t)
+System of ODEs for the ROBER model.  This is a stiff system of equations.
+"""
+function ROBER(dx, x, p, t)
+  dx[1] = -p[1]*x[1]+p[3]*x[2]*x[3]
+  dx[2] =  p[1]*x[1]-p[2]*x[2]^2-p[3]*x[2]*x[3]
+  dx[3] =  p[2]*x[2]^2
+end
+
+"""
     CARRGO(dx, x, p, t)
 
 System of ODEs for the CARRGO model.  Compatible with the methods in this code

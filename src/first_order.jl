@@ -37,6 +37,33 @@ function analytic_method(::Order1, ODE::Function, x0, params, tspan, epsilon; kw
     return solution
 end
 
+function analytic_method_multi_BLAS(::Order1, ODE::Function, x0, params, tspan, epsilon; kwargs...)
+    # Get problem size info.
+    num_params = length(params)
+    num_vars = length(x0)
+
+    # Solve original problem.
+    sol = solve_wrapper(ODE, x0, params, tspan; kwargs...)
+
+    # Allocate output based on dimension info from ODE solution.
+    solution = Dict{Int, Matrix{Float64}}(
+        i => zeros(length(sol), 1+num_params) for i in 1:num_vars)
+    record_data!(solution, sol, 1, eachindex(x0))
+
+    # Copy x0 and params as complex arrays.
+    p_local = [complex(params) for thread in 1:Threads.nthreads()]
+    x0_tmp = complex(x0)
+
+    # Solve for each partial derivative. Use param array assigned to thread.
+    @batch for j in 1:num_params
+        id = Threads.threadid()
+        dj = compute_first_partial(j, ODE, x0_tmp, p_local[id], tspan, epsilon; kwargs...)
+        record_data!(solution, dj, 1+j, eachindex(x0))
+    end
+
+    return solution
+end
+
 function analytic_method_multi(::Order1, ODE::Function, x0, params, tspan, epsilon; kwargs...)
     # Get problem size info.
     num_params = length(params)
@@ -56,6 +83,7 @@ function analytic_method_multi(::Order1, ODE::Function, x0, params, tspan, epsil
 
     # Limit number of BLAS threads as this can interfere with the parallel workload.
     BLAS_threads = BLAS.get_num_threads()
+    #println(BLAS_threads)
     BLAS.set_num_threads(1)
 
     # Solve for each partial derivative. Use param array assigned to thread.

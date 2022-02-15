@@ -68,7 +68,7 @@ ODE Algorithms
 include("first_order.jl")
 include("second_order.jl")
 
-export analytic_method, analytic_method_multi, DES, predict, FD, FD2
+export analytic_method, analytic_method_multi, analytic_method_multi_BLAS, DES, predict, FD, FD2
 
 #=
 Branching Process
@@ -80,7 +80,7 @@ Example ODEs
 =#
 include("example_models.jl")
 
-export CARRGO, SIR, LotkaVolterra, Vaccine, MCC
+export CARRGO, SIR, LotkaVolterra, Vaccine, MCC, ROBER
 
 #=
 Benchmarking
@@ -98,7 +98,8 @@ export CARRGOVisualizations,
     benchmarkSIRAccuracy,
     benchmarkSIRTime, 
     benchmarkMCC, 
-    benchmarkCARRGO
+    benchmarkCARRGO,
+    benchmarkROBER
 
 include("Benchmarking_BirthDeathMigration.jl")
 
